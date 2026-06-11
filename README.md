@@ -24,19 +24,19 @@ The proxy behind that endpoint checks for an existing `pi-vllm-qwen36-27b` Slurm
 Install globally (available in all projects):
 
 ```bash
-pi install git:github.com/laionize/pi-slurm-vllm@v1.0.0
+pi install git:github.com/mehdidc/pi-slurm-vllm@v1.0.0
 ```
 
 Install for a specific project (written to `.pi/settings.json`):
 
 ```bash
-pi install -l git:github.com/laionize/pi-slurm-vllm@v1.0.0
+pi install -l git:github.com/mehdidc/pi-slurm-vllm@v1.0.0
 ```
 
 Try without installing:
 
 ```bash
-pi -e /e/project1/laionize/cherti1/pi-slurm-vllm
+pi -e /path/pi-slurm-vllm
 ```
 
 ### From This Repository
