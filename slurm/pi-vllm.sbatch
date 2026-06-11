@@ -9,8 +9,8 @@
 #SBATCH --exclusive
 #SBATCH --time=04:00:00
 #SBATCH --job-name=pi-vllm-qwen36-27b
-#SBATCH --output=/e/project1/laionize/cherti1/pi-vllm/logs/%x-%j.out
-#SBATCH --error=/e/project1/laionize/cherti1/pi-vllm/logs/%x-%j.err
+#SBATCH --output=/e/scratch/laionize/cherti1/pi-vllm/logs/%x-%j.out
+#SBATCH --error=/e/scratch/laionize/cherti1/pi-vllm/logs/%x-%j.err
 
 set -euo pipefail
 set -x
@@ -180,7 +180,6 @@ srun --overlap --nodes=1 --ntasks=1 -w "$head_node" uv --project "$UV_PROJECT" r
   --served-model-name "$SERVED_MODEL_NAME" \
   --gpu-memory-utilization 0.90 \
   --trust-remote-code \
-  --enforce-eager \
   --distributed-executor-backend ray \
   --max-model-len 262144 \
   --tensor-parallel-size 1 \
