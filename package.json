@@ -1,0 +1,14 @@
+{
+  "name": "pi-slurm-vllm",
+  "version": "1.0.0",
+  "description": "Pi extension to run vLLM models inside Slurm allocations",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "type": "module",
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
