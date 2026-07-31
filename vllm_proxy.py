@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenAI-compatible proxy that starts/reuses a Slurm vLLM job for Pi."""
+"""OpenAI-compatible proxy that starts or reuses a Slurm vLLM job."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import fcntl
 import http.client
 import json
 import os
+import re
 import socket
 import subprocess
-import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -30,6 +30,58 @@ HOP_BY_HOP_HEADERS = {
     "transfer-encoding",
     "upgrade",
 }
+REPO_ROOT = Path(__file__).resolve().parent
+SUPPORTED_RUNNERS_ROOT = REPO_ROOT / "slurm"
+
+
+def supported_runner_path(cluster: str, model: str) -> Path:
+    """Return the dedicated runner for a supported cluster/model pair."""
+    for label, value in (("cluster", cluster), ("model", model)):
+        if not value or value in {".", ".."} or Path(value).name != value:
+            raise ValueError(f"Invalid {label} name: {value!r}")
+
+    runner = SUPPORTED_RUNNERS_ROOT / cluster / f"{model}.sbatch"
+    if not runner.is_file():
+        available = sorted(
+            str(path.relative_to(SUPPORTED_RUNNERS_ROOT).with_suffix(""))
+            for path in SUPPORTED_RUNNERS_ROOT.glob("*/*.sbatch")
+        )
+        choices = ", ".join(available) if available else "none"
+        raise FileNotFoundError(
+            f"Unsupported cluster/model pair {cluster}/{model}; "
+            f"expected {runner}. Available runners: {choices}"
+        )
+    return runner.resolve()
+
+
+def sbatch_job_name(sbatch_path: Path) -> str:
+    """Read the job name from the selected runner so it remains authoritative."""
+    for line in sbatch_path.read_text(encoding="utf-8").splitlines():
+        directive = line.strip()
+        if not directive.startswith("#SBATCH"):
+            continue
+        value = directive.removeprefix("#SBATCH").strip()
+        if value.startswith("--job-name="):
+            return value.partition("=")[2].strip()
+        if value.startswith("--job-name "):
+            return value.split(maxsplit=1)[1].strip()
+        if value.startswith("-J "):
+            return value.split(maxsplit=1)[1].strip()
+    raise ValueError(f"Runner {sbatch_path} must define an #SBATCH --job-name directive")
+
+
+def sbatch_vllm_port(sbatch_path: Path) -> int:
+    """Read the literal backend port owned by the selected runner."""
+    for line in sbatch_path.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"\s*(?:export\s+)?VLLM_PORT=(\d+)\s*", line)
+        if match:
+            port = int(match.group(1))
+            if 1 <= port <= 65535:
+                return port
+            break
+    raise ValueError(
+        f"Runner {sbatch_path} must define a literal VLLM_PORT between 1 and 65535"
+    )
 
 
 def content_to_text(content: object) -> str:
@@ -176,14 +228,13 @@ def cached_backend_ok(state: State) -> bool:
     return True
 
 
-def submit_job(sbatch_path: str, env: dict[str, str]) -> str:
+def submit_job(sbatch_path: str) -> str:
     out = subprocess.run(
         ["sbatch", "--parsable", sbatch_path],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        env=env,
     )
     if out.returncode != 0:
         raise RuntimeError(f"sbatch failed\nstdout:\n{out.stdout}\nstderr:\n{out.stderr}")
@@ -279,11 +330,8 @@ def ensure_backend(state: State) -> str:
             state.job_nodes = nodes
             record(state, f"Using existing Slurm job {job_id} ({job_state})")
         else:
-            env = os.environ.copy()
-            env.setdefault("PI_VLLM_PORT", str(args.vllm_port))
-            env.setdefault("PI_VLLM_SERVED_MODEL_NAME", args.model_id)
             record(state, f"Submitting Slurm job with {args.sbatch}")
-            job_id = submit_job(args.sbatch, env)
+            job_id = submit_job(args.sbatch)
             state.job_id = job_id
             state.job_state = "SUBMITTED"
             record(state, f"Submitted Slurm job {job_id}")
@@ -322,6 +370,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "job_state": state.job_state,
                 "job_nodes": state.job_nodes,
                 "backend_base_url": state.backend_base_url,
+                "cluster": state.args.cluster,
+                "model": state.args.model,
+                "sbatch": state.args.sbatch,
             })
             return
         self.forward()
@@ -407,18 +458,24 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--cluster",
+        required=True,
+        help="Cluster runner directory under slurm/ (for example: jureca).",
+    )
+    parser.add_argument(
+        "--model",
+        required=True,
+        help="Model runner filename without .sbatch (for example: Qwen3.6-27B-FP8).",
+    )
     parser.add_argument("--listen-host", default="127.0.0.1")
     parser.add_argument("--listen-port", type=int, default=8123)
-    parser.add_argument("--job-name", default="pi-vllm-qwen36-27b")
-    parser.add_argument("--sbatch", default="slurm/pi-vllm.sbatch")
-    parser.add_argument("--model-id", default="Qwen3.6-27B-FP8")
-    parser.add_argument("--vllm-port", type=int, default=8080)
     parser.add_argument("--slurm-user")
     parser.add_argument("--slurm-start-timeout", type=int, default=1800)
     parser.add_argument("--vllm-ready-timeout", type=int, default=1800)
     parser.add_argument("--poll-interval", type=int, default=10)
     parser.add_argument("--request-timeout", type=int, default=1800)
-    parser.add_argument("--lock-file", default="/tmp/pi-vllm-proxy.lock")
+    parser.add_argument("--lock-file", default="/tmp/vllm-proxy.lock")
     parser.add_argument("--resolve-node-ip", action="store_true", default=True)
     parser.add_argument("--no-resolve-node-ip", dest="resolve_node_ip", action="store_false")
     parser.add_argument("--ssh-tunnel", action="store_true")
@@ -429,11 +486,21 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    args.sbatch = str(Path(args.sbatch).resolve())
+    try:
+        runner = supported_runner_path(args.cluster, args.model)
+        args.sbatch = str(runner)
+        args.job_name = sbatch_job_name(runner)
+        args.vllm_port = sbatch_vllm_port(runner)
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
     state = State(args)
     server = ThreadingHTTPServer((args.listen_host, args.listen_port), ProxyHandler)
     server.state = state  # type: ignore[attr-defined]
-    print(f"Pi vLLM proxy listening on http://{args.listen_host}:{args.listen_port}/v1", flush=True)
+    print(
+        f"vLLM proxy for {args.cluster}/{args.model} listening on "
+        f"http://{args.listen_host}:{args.listen_port}/v1",
+        flush=True,
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

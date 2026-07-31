@@ -1,60 +1,95 @@
 # Pi vLLM Slurm Proxy
 
-This repo makes Pi use a vLLM server running inside a Slurm allocation.
+This repository lets Pi use a vLLM server running in a Slurm allocation. Pi
+talks to a stable local OpenAI-compatible endpoint at
+`http://127.0.0.1:8123/v1`.
 
-Pi talks to a stable local OpenAI-compatible endpoint:
+The underlying `vllm_proxy.py` is agent-harness-neutral and can serve any
+OpenAI-compatible client. Only `extensions/pi-vllm/` contains Pi-specific
+integration.
+
+Supported model runners live at:
 
 ```text
-http://127.0.0.1:8123/v1
+slurm/<cluster>/<model>.sbatch
 ```
 
-The proxy behind that endpoint checks for an existing `pi-vllm-qwen36-27b` Slurm job. If none exists, it submits `slurm/pi-vllm.sbatch`, waits for the job to become `RUNNING`, waits for vLLM to answer `/v1/models`, and forwards Pi requests to vLLM.
+For example, selecting cluster `jureca` and model `Qwen3.6-27B-FP8` uses
+`slurm/jureca/Qwen3.6-27B-FP8.sbatch`.
 
-## Files
+The repository currently includes that model runner for both `jureca` and
+`jupiter`.
 
-- `extensions/pi-vllm/index.ts`: Pi extension entry point (registers provider, starts proxy, exposes `/vllm-*` commands).
-- `pi_vllm_proxy.py`: local OpenAI-compatible proxy and Slurm lifecycle wrapper.
-- `slurm/pi-vllm.sbatch`: Slurm job script for launching vLLM.
-- `package.json`: Pi package manifest.
+Each runner owns the complete cluster and vLLM configuration: allocation,
+environment, model path, served model name, parallelism, parsers, context
+length, and port. The proxy only selects the runner, submits or reuses its job,
+waits for vLLM, and forwards requests.
+
+## Runner contract
+
+A supported runner must:
+
+- be named `slurm/<cluster>/<model>.sbatch`;
+- define a cluster-unique `#SBATCH --job-name=...`, which the proxy uses to
+  find a reusable job;
+- define a literal `VLLM_PORT=<port>`, which the proxy uses to reach vLLM;
+- pass a literal `--max-model-len VALUE`, which the Pi extension uses for the
+  model's context window;
+- serve the model under the same name as the runner filename.
+
+To support another cluster/model pair, add its dedicated `.sbatch` file. No
+proxy code change is needed.
 
 ## Installation
 
-### As a Pi Package
-
-Install globally (available in all projects):
+Install globally:
 
 ```bash
 pi install git:github.com/mehdidc/pi-slurm-vllm@v1.0.0
 ```
 
-Install for a specific project (written to `.pi/settings.json`):
+Install for one project:
 
 ```bash
 pi install -l git:github.com/mehdidc/pi-slurm-vllm@v1.0.0
 ```
 
-Try without installing:
+Or try the repository directly:
 
 ```bash
 pi -e /path/pi-slurm-vllm
 ```
 
-### From This Repository
+## Pi extension
 
-No separate install is needed. Starting Pi from this directory auto-discovers the extension via the `extensions/` convention directory declared in `package.json`.
+Start Pi normally:
 
+```bash
+pi
+```
 
-## Use Directly Inside Pi
+The extension automatically detects `jureca` or `jupiter` from Slurm, with the
+hostname as a fallback. It scans `slurm/<detected-cluster>/*.sbatch` and
+registers one `hpc-vllm` model for every runner it finds. No cluster or model
+environment variables are needed.
 
-When you start Pi from this project (or after installing the package), the extension registers the `hpc-vllm/Qwen3.6-27B-FP8` model and starts the local proxy inside the Pi process. The Slurm job is lazy: it is submitted only when Pi first sends a request to the model.
+List the discovered catalog with:
 
-Start Pi from this repo, then select:
+```bash
+pi --list-models hpc-vllm
+```
+
+Select any discovered model inside Pi:
 
 ```text
 /model hpc-vllm/Qwen3.6-27B-FP8
 ```
 
-Useful commands inside Pi:
+The extension starts the matching proxy lazily on the first request. Switching
+to another discovered model also switches the extension-owned proxy to that
+model; existing Slurm jobs remain available for later reuse.
+
+Useful commands:
 
 ```text
 /vllm-start
@@ -62,66 +97,46 @@ Useful commands inside Pi:
 /vllm-stop
 ```
 
-`/vllm-stop` stops only the local proxy process. It does not cancel the Slurm job.
+`/vllm-stop` stops only the proxy created by the current Pi process. It does not
+cancel the Slurm job.
 
-## Manual Proxy Mode
+The proxy port can host only one cluster/model selection at a time. The
+extension can switch a proxy process it owns, but it will not stop an unrelated
+proxy already using that port.
 
-From this repo:
+## Manual proxy mode
 
-```bash
-mkdir -p logs
-python3 pi_vllm_proxy.py
-```
-
-The first request from Pi will submit or reuse the Slurm job.
-
-To submit a different model path while keeping the same script:
+Run the generic proxy with a supported cluster/model pair:
 
 ```bash
-PI_VLLM_MODEL=/e/data1/datasets/products/mmlaion/shared/models/Qwen/Qwen3.6-27B-FP8/ \
-PI_VLLM_SERVED_MODEL_NAME=Qwen3.6-27B-FP8 \
-python3 pi_vllm_proxy.py --model-id Qwen3.6-27B-FP8
+python3 vllm_proxy.py \
+  --cluster jureca \
+  --model Qwen3.6-27B-FP8
 ```
 
-## Optional Manual Pi Config
+The first request submits or reuses the job declared by the selected runner.
+Unsupported pairs fail immediately and print the available runners.
 
-The project-local extension registers the model automatically. Use this only if you want to run the manual proxy without the extension. Merge `models.example.json` into:
+## Running Pi from a laptop
 
-```text
-~/.pi/agent/models.json
-```
-
-Then select the model in Pi with:
-
-```text
-/model hpc-vllm/Qwen3.6-27B-FP8
-```
-
-## Running Pi from a Laptop
-
-If Pi runs on your laptop and the proxy runs on the cluster login node, forward the proxy port:
+If the proxy runs on a cluster login node and Pi runs on your laptop, forward
+the proxy port:
 
 ```bash
 ssh -L 8123:127.0.0.1:8123 <cluster-login>
 ```
 
-Then keep `baseUrl` as:
+Keep Pi's base URL as `http://127.0.0.1:8123/v1`.
 
-```text
-http://127.0.0.1:8123/v1
-```
-
-## Direct vs SSH Tunnel to Compute Node
-
-By default the proxy assumes the login node can directly reach the compute node vLLM port. If your cluster requires SSH tunneling to the compute node, start the proxy with:
+By default, the proxy assumes the login node can directly reach the compute
+node. If the cluster requires an SSH tunnel:
 
 ```bash
-python3 pi_vllm_proxy.py --ssh-tunnel
+python3 vllm_proxy.py \
+  --cluster jureca \
+  --model Qwen3.6-27B-FP8 \
+  --ssh-tunnel
 ```
 
-If the tunnel must go through a specific host:
-
-```bash
-python3 pi_vllm_proxy.py --ssh-tunnel --ssh-host <cluster-login>
-```
-
+Use `--ssh-host <cluster-login>` as well if the tunnel needs a specific SSH
+target.

@@ -21,7 +21,7 @@ If the log contains:
 unsupported GNU version! gcc versions later than 13 are not supported
 ```
 
-then the worker did not receive `NVCC_APPEND_FLAGS`. Confirm the log has the vLLM Ray env-copy lines shown above. If it does not, the job was launched from an older `slurm/pi-vllm.sbatch` or the environment was changed before vLLM started.
+then the worker did not receive `NVCC_APPEND_FLAGS`. Confirm the log has the vLLM Ray env-copy lines shown above. If it does not, the job was launched from an older model runner or the environment was changed before vLLM started.
 
 If the log contains:
 
@@ -62,6 +62,6 @@ If Pi returns:
 400 Unexpected message role
 ```
 
-then vLLM is receiving an OpenAI role that the Qwen chat template does not support. The proxy normalizes `/v1/chat/completions` JSON bodies before forwarding: all `system` and `developer` messages are merged into one leading `system` message, `function` is mapped to `tool`, and supported `user`/`assistant`/`tool` messages are preserved. Restart the local proxy or restart Pi after changing `pi_vllm_proxy.py`.
+then vLLM is receiving an OpenAI role that the Qwen chat template does not support. The proxy normalizes `/v1/chat/completions` JSON bodies before forwarding: all `system` and `developer` messages are merged into one leading `system` message, `function` is mapped to `tool`, and supported `user`/`assistant`/`tool` messages are preserved. Restart the local proxy or restart Pi after changing `vllm_proxy.py`.
 
 If the job reaches the Slurm time limit before `/v1/models` is available, keep `#SBATCH --time=04:00:00` or increase it. First launch can spend several minutes compiling and warming CUDA graphs.
