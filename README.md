@@ -73,6 +73,33 @@ The proxy port can host only one cluster/model selection at a time. The
 extension can switch a proxy process it owns, but it will not stop an unrelated
 proxy already using that port.
 
+## Stress testing
+
+`stress_test.py` sends 1,288 examples from the official
+[OpenAI GSM8K dataset](https://huggingface.co/datasets/openai/gsm8k) in
+`benchmarks/math_problems.jsonl` concurrently to the same OpenAI-compatible
+proxy endpoint used by Pi. The bundled deterministic subset contains test
+rows 0 through 1,287 in their published order, including each reference
+answer. Start the desired model from Pi first, then run:
+
+```bash
+python3 stress_test.py --parallel 16 --model Kimi-K3 --reasoning-effort low
+```
+
+The summary reports successful requests per second, input/output token
+throughput, and mean/p50/p95/p99 request latency. Save every response and its
+timing information with:
+
+```bash
+python3 stress_test.py \
+  --parallel 16 \
+  --model Kimi-K3 \
+  --results benchmarks/results.jsonl
+```
+
+Use `--requests N` for a shorter run, `--max-tokens N` to control response
+length, and `--warmup 0` to disable the default unmeasured warm-up request.
+
 
 ## Runner contract
 
