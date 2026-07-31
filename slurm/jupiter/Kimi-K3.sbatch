@@ -147,12 +147,12 @@ srun --overlap --nodes=1 --ntasks=1 -w "$head_node" $RUN vllm serve "$MODEL" \
   --kv-cache-memory=21474836480 \
   --trust-remote-code \
   --attention-backend TRITON_MLA \
+  --disable-custom-all-reduce \
   --distributed-executor-backend ray \
   --max-model-len 262144 \
   --tensor-parallel-size 4 \
   --data-parallel-size 1 \
   --pipeline-parallel-size 8 \
-  --enforce-eager \
   --load-format fastsafetensors \
   --reasoning-parser kimi_k3 \
   --enable-auto-tool-choice --tool-call-parser kimi_k3
