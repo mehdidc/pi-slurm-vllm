@@ -23,10 +23,19 @@ type DiscoveredModel = {
   id: string;
   name: string;
   reasoning: boolean;
+  thinkingLevelMap?: Partial<
+    Record<
+      "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+      string | null
+    >
+  >;
   input: ["text"];
   contextWindow: number;
   maxTokens: number;
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  compat?: {
+    supportsReasoningEffort: boolean;
+  };
 };
 
 const SUPPORTED_CLUSTERS = ["jureca", "jupiter"] as const;
@@ -98,6 +107,37 @@ function maxModelLength(source: string, runner: string): number {
   return Number(match[1]);
 }
 
+function reasoningCapabilities(
+  source: string,
+): Pick<DiscoveredModel, "reasoning" | "thinkingLevelMap" | "compat"> {
+  const hasReasoningParser =
+    /--reasoning-parser\b|^\s*REASONING_PARSER=/m.test(source);
+  if (!hasReasoningParser) return { reasoning: false };
+
+  const parser = source.match(
+    /--reasoning-parser(?:=|\s+)([A-Za-z0-9_-]+)\b/,
+  )?.[1];
+  if (parser === "kimi_k3") {
+    return {
+      reasoning: true,
+      thinkingLevelMap: {
+        off: null,
+        minimal: null,
+        low: "low",
+        medium: null,
+        high: "high",
+        xhigh: null,
+        max: "max",
+      },
+      compat: {
+        supportsReasoningEffort: true,
+      },
+    };
+  }
+
+  return { reasoning: true };
+}
+
 function discoverModels(cluster: SupportedCluster): DiscoveredModel[] {
   const runnerDirectory = resolve(SLURM_ROOT, cluster);
   if (!existsSync(runnerDirectory)) {
@@ -111,10 +151,11 @@ function discoverModels(cluster: SupportedCluster): DiscoveredModel[] {
       const runner = resolve(runnerDirectory, entry.name);
       const source = readFileSync(runner, "utf8");
       const contextWindow = maxModelLength(source, runner);
+      const reasoning = reasoningCapabilities(source);
       return {
         id,
         name: `${id} on ${cluster} Slurm vLLM`,
-        reasoning: /--reasoning-parser\b|^\s*REASONING_PARSER=/m.test(source),
+        ...reasoning,
         input: ["text"] as ["text"],
         contextWindow,
         maxTokens: contextWindow,
