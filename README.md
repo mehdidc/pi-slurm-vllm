@@ -8,38 +8,6 @@ The underlying `vllm_proxy.py` is agent-harness-neutral and can serve any
 OpenAI-compatible client. Only `extensions/pi-vllm/` contains Pi-specific
 integration.
 
-Supported model runners live at:
-
-```text
-slurm/<cluster>/<model>.sbatch
-```
-
-For example, selecting cluster `jureca` and model `Qwen3.6-27B-FP8` uses
-`slurm/jureca/Qwen3.6-27B-FP8.sbatch`.
-
-The repository currently includes that model runner for both `jureca` and
-`jupiter`.
-
-Each runner owns the complete cluster and vLLM configuration: allocation,
-environment, model path, served model name, parallelism, parsers, context
-length, and port. The proxy only selects the runner, submits or reuses its job,
-waits for vLLM, and forwards requests.
-
-## Runner contract
-
-A supported runner must:
-
-- be named `slurm/<cluster>/<model>.sbatch`;
-- define a cluster-unique `#SBATCH --job-name=...`, which the proxy uses to
-  find a reusable job;
-- define a literal `VLLM_PORT=<port>`, which the proxy uses to reach vLLM;
-- pass a literal `--max-model-len VALUE`, which the Pi extension uses for the
-  model's context window;
-- serve the model under the same name as the runner filename.
-
-To support another cluster/model pair, add its dedicated `.sbatch` file. No
-proxy code change is needed.
-
 ## Installation
 
 Install globally:
@@ -60,7 +28,7 @@ Or try the repository directly:
 pi -e /path/pi-slurm-vllm
 ```
 
-## Pi extension
+## Usage in Pi 
 
 Start Pi normally:
 
@@ -103,6 +71,37 @@ cancel the Slurm job.
 The proxy port can host only one cluster/model selection at a time. The
 extension can switch a proxy process it owns, but it will not stop an unrelated
 proxy already using that port.
+
+
+## Runner contract
+
+Supported model runners live at:
+
+```text
+slurm/<cluster>/<model>.sbatch
+```
+
+For example, for cluster `jupiter` and model `Qwen3.6-27B-FP8` uses
+`slurm/jupiter/Qwen3.6-27B-FP8.sbatch`.
+
+Each runner owns the complete cluster and vLLM configuration: allocation,
+environment, model path, served model name, parallelism, parsers, context
+length, and port. The proxy only selects the runner, submits or reuses its job,
+waits for vLLM, and forwards requests.
+
+A supported runner must:
+
+- be named `slurm/<cluster>/<model>.sbatch`;
+- define a cluster-unique `#SBATCH --job-name=...`, which the proxy uses to
+  find a reusable job;
+- define a literal `VLLM_PORT=<port>`, which the proxy uses to reach vLLM;
+- pass a literal `--max-model-len VALUE`, which the Pi extension uses for the
+  model's context window;
+- serve the model under the same name as the runner filename.
+
+To support another cluster/model pair, add its dedicated `.sbatch` file. No
+proxy code change is needed.
+
 
 ## Manual proxy mode
 
