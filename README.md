@@ -108,9 +108,7 @@ proxy code change is needed.
 Run the generic proxy with a supported cluster/model pair:
 
 ```bash
-python3 vllm_proxy.py \
-  --cluster jupiter \
-  --model Kimi-K3.sbatch
+python3 vllm_proxy.py --model Kimi-K3
 ```
 
 The first request submits or reuses the job declared by the selected runner.
@@ -132,8 +130,7 @@ node. If the cluster requires an SSH tunnel:
 
 ```bash
 python3 vllm_proxy.py \
-  --cluster jureca \
-  --model Kimi-K3.sbatch \
+  --model Kimi-K3 \
   --ssh-tunnel
 ```
 
