@@ -47,10 +47,10 @@ List the discovered catalog with:
 pi --list-models hpc-vllm
 ```
 
-Select any discovered model inside Pi:
+Select any discovered model inside Pi, for instance:
 
 ```text
-/model hpc-vllm/Qwen3.6-27B-FP8
+/model hpc-vllm/Kimi-K3
 ```
 
 The extension starts the matching proxy lazily on the first request. Switching
@@ -81,8 +81,8 @@ Supported model runners live at:
 slurm/<cluster>/<model>.sbatch
 ```
 
-For example, for cluster `jupiter` and model `Qwen3.6-27B-FP8` uses
-`slurm/jupiter/Qwen3.6-27B-FP8.sbatch`.
+For example, for cluster `jupiter` and model `Kimi-K3` uses
+`slurm/jupiter/Kimi-K3.sbatch.sbatch`.
 
 Each runner owns the complete cluster and vLLM configuration: allocation,
 environment, model path, served model name, parallelism, parsers, context
@@ -109,8 +109,8 @@ Run the generic proxy with a supported cluster/model pair:
 
 ```bash
 python3 vllm_proxy.py \
-  --cluster jureca \
-  --model Qwen3.6-27B-FP8
+  --cluster jupiter \
+  --model Kimi-K3.sbatch
 ```
 
 The first request submits or reuses the job declared by the selected runner.
@@ -133,7 +133,7 @@ node. If the cluster requires an SSH tunnel:
 ```bash
 python3 vllm_proxy.py \
   --cluster jureca \
-  --model Qwen3.6-27B-FP8 \
+  --model Kimi-K3.sbatch \
   --ssh-tunnel
 ```
 
