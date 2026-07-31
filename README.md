@@ -22,10 +22,11 @@ Install for one project:
 pi install -l git:github.com/mehdidc/pi-slurm-vllm@v1.0.0
 ```
 
-Or try the repository directly:
+Or install from local copy of the repo
 
 ```bash
-pi -e /path/pi-slurm-vllm
+git clone https://github.com/mehdidc/pi-slurm-vllm
+pi install /path/pi-slurm-vllm
 ```
 
 ## Usage in Pi 
