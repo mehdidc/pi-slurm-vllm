@@ -134,6 +134,23 @@ function reasoningCapabilities(
       },
     };
   }
+  if (parser === "qwen3") {
+    return {
+      reasoning: true,
+      thinkingLevelMap: {
+        off: null,
+        minimal: null,
+        low: "low",
+        medium: "medium",
+        high: null,
+        xhigh: "xhigh",
+        max: null,
+      },
+      compat: {
+        supportsReasoningEffort: true,
+      },
+    };
+  }
 
   return { reasoning: true };
 }
