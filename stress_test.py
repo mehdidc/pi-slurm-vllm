@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import random
 import re
 import signal
 import statistics
@@ -165,6 +166,19 @@ def load_problems(path: Path) -> list[dict[str, Any]]:
     if not problems:
         raise ValueError(f"No problems found in {path}")
     return problems
+
+
+def select_problems(
+    problems: list[dict[str, Any]],
+    requests: int | None,
+    replacement: bool,
+    seed: int | None,
+) -> list[dict[str, Any]]:
+    if requests is None:
+        return problems
+    if replacement:
+        return random.Random(seed).choices(problems, k=requests)
+    return problems[:requests]
 
 
 def percentile(values: list[float], percent: float) -> float:
@@ -334,6 +348,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--parallel", type=positive_int, default=8, help="Concurrent requests (default: 8)")
     parser.add_argument("--requests", type=positive_int, help="Number of problems to run (default: all 1,288)")
+    parser.add_argument(
+        "--replacement",
+        action="store_true",
+        help="Sample --requests problems with replacement instead of taking the first rows",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="Optional random seed for reproducible --replacement sampling",
+    )
     parser.add_argument("--url", default=DEFAULT_URL, help=f"Chat completions URL (default: {DEFAULT_URL})")
     parser.add_argument(
         "--model",
@@ -384,7 +408,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--resolve-node-ip", action="store_true", default=True)
     parser.add_argument("--no-resolve-node-ip", dest="resolve_node_ip", action="store_false")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.replacement and args.requests is None:
+        parser.error("--replacement requires --requests")
+    return args
 
 
 def main() -> int:
@@ -411,7 +438,12 @@ def main() -> int:
 
     try:
         problems = load_problems(args.problems)
-        selected = problems[: args.requests] if args.requests else problems
+        selected = select_problems(
+            problems,
+            args.requests,
+            args.replacement,
+            args.seed,
+        )
 
         if args.sbatch:
             job_id, vllm_port, runner_model = submit_slurm_backend(args)

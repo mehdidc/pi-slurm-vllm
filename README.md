@@ -109,6 +109,19 @@ python3 stress_test.py \
 
 Use `--requests N` for a shorter run, `--max-tokens N` to control response
 length, and `--warmup 0` to disable the default unmeasured warm-up request.
+Normally `--requests N` takes at most the first N rows. Add `--replacement` to
+sample exactly N requests with replacement, even when the problem file has
+fewer rows:
+
+```bash
+python3 stress_test.py \
+  --problems benchmarks/one_problem.jsonl \
+  --requests 100 \
+  --replacement \
+  --seed 42
+```
+
+`--seed` is optional and makes replacement sampling reproducible.
 
 The stress test can also own the complete Slurm lifecycle. Pass a runner with
 `--sbatch`; it submits a fresh job, waits for the allocation and vLLM readiness,
