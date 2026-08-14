@@ -1,19 +1,18 @@
 #!/bin/bash
 #SBATCH --account=reformo
 #SBATCH --partition=booster
-#SBATCH --nodes=8
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=72
 #SBATCH --gres=gpu:4
 #SBATCH --gpus-per-node=4
 #SBATCH --exclusive
-#SBATCH --time=4:00:00
-#SBATCH --job-name=vllm-kimi-k3
+#SBATCH --time=04:00:00
+#SBATCH --job-name=vllm-qwen36-27b
 
 set -euo pipefail
 set -x
 NET_IFACE=ib0
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export NCCL_SOCKET_IFNAME=$NET_IFACE
 export GLOO_SOCKET_IFNAME=$NET_IFACE
 export NCCL_SOCKET_FAMILY=AF_INET
@@ -137,23 +136,20 @@ else:
     raise RuntimeError(f"Ray did not become ready at {address}") from last_error
 EOF
 
-MODEL=/e/data1/datasets/products/mmlaion/shared/models/moonshotai/Kimi-K3
-
-SERVED_MODEL_NAME=Kimi-K3
+MODEL=/e/data1/datasets/products/mmlaion/shared/models/Qwen/Qwen3.8-27B-FP8
+SERVED_MODEL_NAME=Qwen3.8-27B-FP8
 VLLM_PORT=8080
-KV=17179869184
+
 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" $RUN vllm serve "$MODEL" \
   --host "$MASTER_IP" --port "$VLLM_PORT" \
   --served-model-name "$SERVED_MODEL_NAME" \
-  --kv-cache-memory=$KV \
+  --gpu-memory-utilization 0.90 \
   --trust-remote-code \
-  --attention-backend TRITON_MLA \
-  --disable-custom-all-reduce \
   --distributed-executor-backend ray \
   --max-model-len 262144 \
-  --tensor-parallel-size 4 \
-  --data-parallel-size 1 \
-  --pipeline-parallel-size 8 \
-  --load-format fastsafetensors \
-  --reasoning-parser kimi_k3 \
-  --enable-auto-tool-choice --tool-call-parser kimi_k3
+  --tensor-parallel-size 1 \
+  --data-parallel-size 4 \
+  --pipeline-parallel-size 1 \
+  --additional-config '{"gdn_prefill_backend":"triton"}' \
+  --reasoning-parser qwen3 \
+  --enable-auto-tool-choice --tool-call-parser qwen3_coder

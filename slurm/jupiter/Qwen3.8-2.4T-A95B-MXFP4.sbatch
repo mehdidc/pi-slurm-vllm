@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:4
 #SBATCH --gpus-per-node=4
 #SBATCH --exclusive
-#SBATCH --time=4:00:00
+#SBATCH --time=10:00:00
 #SBATCH --job-name=vllm-kimi-k3
 
 set -euo pipefail
@@ -70,7 +70,7 @@ export MASTER_ADDR="$head_node"
 MASTER_IP=$(getent hosts "$MASTER_ADDR" | awk '{ print $1 }')
 export MASTER_ADDR=$MASTER_IP
 export MASTER_PORT=$port
-APPTAINER_IMAGE=/e/data1/datasets/playground/mmlaion/shared/cherti1/apptainer_images/vllm.sif
+APPTAINER_IMAGE=/e/data1/datasets/playground/mmlaion/shared/cherti1/apptainer_images/vllm_qwen3.8.sif
 RUN="apptainer exec --nv $APPTAINER_IMAGE"
 
 echo "Starting Ray HEAD at $MASTER_ADDR:$MASTER_PORT"
@@ -137,23 +137,19 @@ else:
     raise RuntimeError(f"Ray did not become ready at {address}") from last_error
 EOF
 
-MODEL=/e/data1/datasets/products/mmlaion/shared/models/moonshotai/Kimi-K3
+MODEL=/e/data1/datasets/products/mmlaion/shared/models/Qwen/Qwen3.8-2.4T-A95B-MXFP4
 
-SERVED_MODEL_NAME=Kimi-K3
+SERVED_MODEL_NAME=Qwen3.8-2.4T-A95B-MXFP4
 VLLM_PORT=8080
-KV=17179869184
 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" $RUN vllm serve "$MODEL" \
   --host "$MASTER_IP" --port "$VLLM_PORT" \
   --served-model-name "$SERVED_MODEL_NAME" \
-  --kv-cache-memory=$KV \
-  --trust-remote-code \
-  --attention-backend TRITON_MLA \
+  --trust-remote-code --gpu-memory-utilization 0.7 \
   --disable-custom-all-reduce \
   --distributed-executor-backend ray \
   --max-model-len 262144 \
   --tensor-parallel-size 4 \
-  --data-parallel-size 1 \
   --pipeline-parallel-size 8 \
   --load-format fastsafetensors \
-  --reasoning-parser kimi_k3 \
-  --enable-auto-tool-choice --tool-call-parser kimi_k3
+  --reasoning-parser qwen3 \
+  --enable-auto-tool-choice --tool-call-parser qwen3_coder
