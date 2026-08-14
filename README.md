@@ -86,9 +86,19 @@ answer. Start the desired model from Pi first, then run:
 python3 stress_test.py --parallel 16 --model Kimi-K3 --reasoning-effort low
 ```
 
-The summary reports successful requests per second, input/output token
-throughput, and mean/p50/p95/p99 request latency. Save every response and its
-timing information with:
+The summary reports successful requests per second, aggregate prefill
+(input-token) and decode (output-token) throughput, and mean/p50/p95/p99 request
+latency. It also reports p50/p95/p99 of per-request output-token rates, calculated
+as each response's `usage.completion_tokens` divided by that request's total
+latency. Because responses are non-streaming, this request latency includes
+queueing and prefill as well as decoding. Prefill and decode may overlap inside
+vLLM, so the aggregate figures are end-to-end workload rates over the same
+measured wall-clock interval rather than isolated engine-phase timings. For
+managed `--sbatch` runs, the summary additionally
+locates the Slurm stdout file and reports the mean and peak of vLLM's native
+periodic prompt/generation throughput samples emitted during the measured
+batch, including the number of running requests observed at each peak. Save
+every response and its timing information with:
 
 ```bash
 python3 stress_test.py \
@@ -99,6 +109,28 @@ python3 stress_test.py \
 
 Use `--requests N` for a shorter run, `--max-tokens N` to control response
 length, and `--warmup 0` to disable the default unmeasured warm-up request.
+
+The stress test can also own the complete Slurm lifecycle. Pass a runner with
+`--sbatch`; it submits a fresh job, waits for the allocation and vLLM readiness,
+runs the same benchmark and throughput report directly against vLLM, then
+cancels the whole job and waits for it to disappear from Slurm before exiting:
+
+```bash
+python3 stress_test.py \
+  --sbatch slurm/jupiter/Kimi-K3.sbatch \
+  --parallel 16
+```
+
+With `--sbatch`, the request model defaults to the runner's literal
+`SERVED_MODEL_NAME`; an explicit `--model` still overrides it. Without
+`--sbatch`, the existing `Kimi-K3` default is retained.
+
+Startup, readiness, shutdown, and polling limits can be adjusted with
+`--slurm-start-timeout`, `--vllm-ready-timeout`, `--slurm-stop-timeout`, and
+`--poll-interval`. The submitted job is also cancelled if startup, warm-up, or
+stress testing fails or the process is interrupted. The summary includes the
+vLLM readiness time measured from when the job first reaches `RUNNING`; time
+spent waiting in the Slurm queue is excluded.
 
 
 ## Runner contract
@@ -123,6 +155,8 @@ A supported runner must:
 - define a cluster-unique `#SBATCH --job-name=...`, which the proxy uses to
   find a reusable job;
 - define a literal `VLLM_PORT=<port>`, which the proxy uses to reach vLLM;
+- define a literal `SERVED_MODEL_NAME=<name>`, which managed stress tests use
+  as their default OpenAI request model;
 - pass a literal `--max-model-len VALUE`, which the Pi extension uses for the
   model's context window;
 - serve the model under the same name as the runner filename.
