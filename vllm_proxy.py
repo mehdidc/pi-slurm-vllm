@@ -84,6 +84,18 @@ def sbatch_vllm_port(sbatch_path: Path) -> int:
     )
 
 
+def sbatch_served_model_name(sbatch_path: Path) -> str:
+    """Read the literal OpenAI model name owned by the selected runner."""
+    for line in sbatch_path.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(
+            r"\s*(?:export\s+)?SERVED_MODEL_NAME=(?:\"([^\"]+)\"|'([^']+)'|([^\s$]+))\s*",
+            line,
+        )
+        if match:
+            return next(value for value in match.groups() if value is not None)
+    raise ValueError(f"Runner {sbatch_path} must define a literal SERVED_MODEL_NAME")
+
+
 def content_to_text(content: object) -> str:
     if content is None:
         return ""
