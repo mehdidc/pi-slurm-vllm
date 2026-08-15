@@ -96,6 +96,21 @@ def sbatch_served_model_name(sbatch_path: Path) -> str:
     raise ValueError(f"Runner {sbatch_path} must define a literal SERVED_MODEL_NAME")
 
 
+def sbatch_max_model_len(sbatch_path: Path) -> int:
+    """Read the literal context window passed to vLLM by a runner."""
+    active_source = "\n".join(
+        line
+        for line in sbatch_path.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    match = re.search(r"--max-model-len(?:=|\s+)(\d+)\b", active_source)
+    if not match:
+        raise ValueError(
+            f"Runner {sbatch_path} must pass a literal --max-model-len VALUE"
+        )
+    return int(match.group(1))
+
+
 def content_to_text(content: object) -> str:
     if content is None:
         return ""
@@ -385,6 +400,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "cluster": state.args.cluster,
                 "model": state.args.model,
                 "sbatch": state.args.sbatch,
+            })
+            return
+        if self.path.split("?", 1)[0] == "/v1/models":
+            state: State = self.server.state  # type: ignore[attr-defined]
+            runner = Path(state.args.sbatch)
+            context_length = sbatch_max_model_len(runner)
+            self.send_json({
+                "object": "list",
+                "data": [{
+                    "id": state.args.model,
+                    "object": "model",
+                    "owned_by": "pi-slurm-vllm",
+                    "context_length": context_length,
+                    "max_model_len": context_length,
+                }],
             })
             return
         self.forward()

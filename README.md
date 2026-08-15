@@ -73,6 +73,54 @@ The proxy port can host only one cluster/model selection at a time. The
 extension can switch a proxy process it owns, but it will not stop an unrelated
 proxy already using that port.
 
+## Usage in Hermes Agent
+
+Hermes Agent uses two plugin entry points backed by the same implementation:
+one registers the `hpc-vllm` model provider and one manages the proxy lifecycle
+and slash commands. From a local clone, install both symlinks with:
+
+```bash
+python3 install_hermes_plugin.py
+hermes plugins enable pi-slurm-vllm
+```
+
+The symlinks intentionally point at the complete checkout because the plugin
+uses the repository's `vllm_proxy.py` and `slurm/` runners directly. Re-run the
+installer with `--hermes-home PATH` when using a non-default Hermes profile
+home. The installer also adds a non-secret `PI_VLLM_API_KEY=pi-vllm-local`
+sentinel to that profile's `.env` when the variable is absent. Hermes requires
+an API-key-shaped value to initialize its OpenAI client, while the local proxy
+does not authenticate it.
+
+Select the provider and one of its discovered models through `hermes model`, or
+start Hermes explicitly:
+
+```bash
+hermes --provider hpc-vllm -m Kimi-K3
+```
+
+The lifecycle plugin seeds Hermes's context-length cache from each runner's
+literal `--max-model-len`, so context compression uses the same window that the
+Pi extension advertises without needing to start a Slurm allocation.
+
+The first provider request starts the matching local proxy. The proxy then
+submits or reuses the Slurm job on demand. Switching models switches only a
+proxy process owned by the current Hermes process; an unrelated process already
+using the configured port is never stopped.
+
+Hermes exposes the same management commands in CLI and gateway sessions:
+
+```text
+/vllm-start [model]
+/vllm-status
+/vllm-stop
+```
+
+`/vllm-stop` and Hermes session finalization stop the local proxy process but do
+not cancel its Slurm job. The same `PI_VLLM_PROXY_HOST`, `PI_VLLM_PROXY_PORT`,
+and `PI_VLLM_PROVIDER_NAME` environment overrides used by the Pi integration
+also apply to Hermes.
+
 ## Stress testing
 
 `stress_test.py` sends 1,288 examples from the official
