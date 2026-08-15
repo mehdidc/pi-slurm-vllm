@@ -8,7 +8,7 @@
 #SBATCH --gpus-per-node=4
 #SBATCH --exclusive
 #SBATCH --time=04:00:00
-#SBATCH --job-name=vllm-qwen36-27b
+#SBATCH --job-name=vllm-qwen38-27b
 
 set -euo pipefail
 set -x
@@ -53,9 +53,6 @@ export NNODES
 echo "SLURM_GPUS_PER_NODE: $SLURM_GPUS_PER_NODE"
 echo "SLURM_SUBMIT_DIR: $SLURM_SUBMIT_DIR"
 
-export VLLM_ATTENTION_BACKEND=FLASH_ATTN
-export VLLM_DISABLE_CUSTOM_ALL_REDUCE=1
-export VLLM_USE_RAY_COMPILED_DAG=0
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
@@ -143,13 +140,14 @@ VLLM_PORT=8080
 srun --overlap --nodes=1 --ntasks=1 -w "$head_node" $RUN vllm serve "$MODEL" \
   --host "$MASTER_IP" --port "$VLLM_PORT" \
   --served-model-name "$SERVED_MODEL_NAME" \
-  --gpu-memory-utilization 0.90 \
+  --gpu-memory-utilization 0.97 \
   --trust-remote-code \
   --distributed-executor-backend ray \
-  --max-model-len 262144 \
   --tensor-parallel-size 1 \
   --data-parallel-size 4 \
   --pipeline-parallel-size 1 \
   --additional-config '{"gdn_prefill_backend":"triton"}' \
   --reasoning-parser qwen3 \
-  --enable-auto-tool-choice --tool-call-parser qwen3_coder
+  --enable-auto-tool-choice --tool-call-parser qwen3_coder \
+  --hf-overrides '{"text_config": {"rope_parameters": {"mrope_interleaved": true, "mrope_section": [11, 11, 10], "rope_type": "yarn", "rope_theta": 10000000, "partial_rotary_factor": 0.25, "factor": 4.0, "original_max_position_embeddings": 262144}}}' --max-model-len 1000000 \
+  --kv-cache-dtype fp8
