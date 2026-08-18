@@ -152,4 +152,5 @@ srun --overlap --nodes=1 --ntasks=1 -w "$head_node" $RUN vllm serve "$MODEL" \
   --pipeline-parallel-size 8 \
   --load-format fastsafetensors \
   --reasoning-parser qwen3 \
-  --enable-auto-tool-choice --tool-call-parser qwen3_coder
+  --enable-auto-tool-choice --tool-call-parser qwen3_coder \
+  --kv-cache-dtype fp8
