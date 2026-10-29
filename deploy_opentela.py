@@ -246,16 +246,20 @@ def wait_for_route(args, process, local_url: str, model: str) -> str:
     deadline = time.monotonic() + args.opentela_timeout
     base_url = None
     last_error = "waiting for local OpenTela identity"
+    next_report = 0.0
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(f"OpenTela exited with status {process.returncode}; see otela.log.")
         try:
             if base_url is None:
-                identity = get_json(local_url + "/v1/self", use_proxy=False)
-                peer = identity.get("id", "") if isinstance(identity, dict) else ""
-                if not isinstance(peer, str) or not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,128}", peer):
-                    raise ValueError("OpenTela has not returned a valid peer ID yet")
-                base_url = f"{args.api_url}/v1/p2p-service/{quote(peer, safe='')}/llm/v1"
+                if urlsplit(args.api_url).path:
+                    base_url = args.api_url
+                else:
+                    identity = get_json(local_url + "/v1/self", use_proxy=False)
+                    peer = identity.get("id", "") if isinstance(identity, dict) else ""
+                    if not isinstance(peer, str) or not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,128}", peer):
+                        raise ValueError("OpenTela has not returned a valid peer ID yet")
+                    base_url = f"{args.api_url}/v1/p2p-service/{quote(peer, safe='')}/llm/v1"
                 log("OpenTela started; waiting for the gateway route to serve the model")
             if has_model(get_json(base_url + "/models", args.api_key,
                                   use_proxy=not is_local_url(base_url)), model):
@@ -267,12 +271,17 @@ def wait_for_route(args, process, local_url: str, model: str) -> str:
             if exc.code in {401, 402, 403}:
                 raise RuntimeError(
                     f"OpenTela returned HTTP {exc.code}; check your API key, account credit, "
-                    "and access to this peer. An inference API key is not an instance deploy key."
+                    "and access to this route. An inference API key is not an instance deploy key."
                 ) from None
         except (OSError, ValueError, URLError):
             last_error = "route unavailable or invalid JSON response"
+        if time.monotonic() >= next_report:
+            target = base_url + "/models" if base_url else local_url + "/v1/self"
+            log(f"Still waiting for OpenTela at {target}: {last_error}")
+            next_report = time.monotonic() + 30
         time.sleep(args.poll_interval)
-    raise TimeoutError(f"Timed out verifying OpenTela deployment ({last_error}); check otela.log and bootstrap connectivity.")
+    raise TimeoutError(f"Timed out verifying OpenTela deployment ({last_error}); "
+                       "check otela.log, gateway routing, and bootstrap connectivity.")
 
 
 def deploy(args, runner: Path, binary: str) -> None:
@@ -360,9 +369,9 @@ def parse_args(argv=None):
             or url.path not in {"", "/v1/service/llm", "/v1/service/llm/v1"}):
         parser.error("--api-url must be an HTTPS origin or /v1/service/llm URL "
                      "(optionally ending in /v1; HTTP allowed only for localhost)")
-    # Deployment checks target this worker's peer, even when the supplied URL
-    # is the gateway's load-balanced service endpoint.
-    args.api_url = url._replace(path="").geturl()
+    # Preserve an explicit service route: self-hosted gateways may expose it
+    # without exposing the peer-specific routing API.
+    args.api_url = url._replace(path="/v1/service/llm/v1" if url.path else "").geturl()
     args.api_key = (args.api_key or "").strip()
     if not args.api_key:
         parser.error("provide --api-key or set OPENTELA_API_KEY")

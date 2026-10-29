@@ -192,10 +192,14 @@ python3 deploy_opentela.py --model Kimi-K3 \
   --api-url https://opentela-laion-vm.taild3d308.ts.net/v1/service/llm
 ```
 
-The script prints a verified, deployment-specific
-`https://<your-gateway>/v1/p2p-service/<peer-id>/llm/v1` URL. It checks the
-selected worker rather than the load-balanced service, which could serve a
-different worker. The gateway must already be running and reachable from
+With a full service URL, the script verifies and prints
+`https://<your-gateway>/v1/service/llm/v1`. This checks that the gateway serves
+the requested model; a load-balanced route may select another worker serving
+the same model. With an origin-only URL, the script verifies and prints the
+deployment-specific `/v1/p2p-service/<peer-id>/llm/v1` route instead. Choose
+the full service URL when your gateway only exposes service routing.
+Readiness failures include the checked URL and HTTP status every 30 seconds.
+The gateway must already be running and reachable from
 the login node. If it uses a private mesh, also pass `--bootstrap` with that
 mesh's discovery URL or P2P multiaddr; otherwise the public bootstrap remains
 the default. HTTP is allowed for `localhost`, `127.0.0.1`, and `[::1]`, and
