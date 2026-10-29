@@ -121,6 +121,81 @@ not cancel its Slurm job. The same `PI_VLLM_PROXY_HOST`, `PI_VLLM_PROXY_PORT`,
 and `PI_VLLM_PROVIDER_NAME` environment overrides used by the Pi integration
 also apply to Hermes.
 
+## Deploy a Slurm model through OpenTela
+
+Run `deploy_opentela.py` on a login node that can reach both the compute nodes
+and the Internet. It starts or reuses a repository Slurm runner, waits for the
+actual model to become ready, and exposes it through OpenTela:
+
+```bash
+export OPENTELA_API_KEY='your-opentela-api-key'
+python3 deploy_opentela.py --model Kimi-K3
+```
+
+You can also pass `--api-key KEY`. The cluster is detected from Slurm or the
+hostname; use `--cluster jupiter`, `--cluster jureca`, or `--cluster juwels`
+to select it explicitly.
+The model is the runner filename without `.sbatch`, as in the Pi integration.
+On JURECA and JUWELS, readiness checks try the internal `<node>i` address
+used by the runners before the ordinary Slurm hostname. The working address
+is also used by the bridge. Use `--backend-host HOST` (or a template such as
+`--backend-host '{node}i'`) to override it. Backend readiness requests bypass
+HTTP proxies, and failed checks report their reason every 30 seconds.
+
+Once the model is reachable through OpenTela, stdout prints one deployment-specific
+OpenAI API base URL:
+
+```text
+https://api.opentela.ai/v1/p2p-service/<peer-id>/llm/v1
+```
+
+Use that URL as your client's `base_url`, the OpenTela API key as its `api_key`,
+and the runner's `SERVED_MODEL_NAME` as its `model`. For example:
+
+```bash
+curl 'https://api.opentela.ai/v1/p2p-service/<peer-id>/llm/v1/chat/completions' \
+  -H "Authorization: Bearer $OPENTELA_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"Kimi-K3","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+The script stays in the foreground to maintain the connection. Use tmux for
+a persistent session. Progress goes to stderr, so `> deployment-url.txt` saves
+just the verified URL. Ctrl-C or SIGTERM stops the OpenTela worker and local
+bridge; **Slurm jobs remain running**, including jobs submitted by the script.
+The job ID and explicit `scancel JOB_ID` command are printed during startup.
+The script also exits if the Slurm job ends or OpenTela stops.
+
+Python's standard library is sufficient. If `otela`/`opentela` is absent from
+PATH, the script downloads the official Linux amd64/arm64 v0.2.6 release to
+`~/.cache/pi-slurm-vllm/` and verifies its SHA-256 digest. Use `--otela PATH`
+for an existing binary. The peer identity and `otela.log` are retained under
+`~/.local/state/pi-slurm-vllm/opentela/<cluster>/<model>/` (respecting
+`XDG_STATE_HOME`); `--state-dir PATH` overrides this directory. Reusing the
+directory preserves the deployment URL, and a lock prevents concurrent use.
+The inference API key is not written there or passed to the worker.
+
+`--slurm-start-timeout`, `--vllm-ready-timeout`, `--opentela-timeout`, and
+`--poll-interval` configure waiting limits in seconds. `--bootstrap ADDRESS`
+(repeatable) overrides the public WebSocket bootstrap, and `--api-url URL`
+selects another OpenTela gateway. The defaults use outbound WebSocket port
+443 from the login node; the compute nodes need no Internet connection.
+
+This publishes a service on OpenTela's permissionless mesh. The API key
+authenticates requests through its gateway; it does not make the service
+private, claim the instance in your account, or allocate GPUs. Account linking
+and trusted-region access require separate OpenTela configuration. The script
+fails without printing a URL if the gateway rejects the key/access/credit or
+cannot reach this peer. See OpenTela's
+[routing documentation](https://opentela.ai/docs/tutorial/routing) and
+[public-cloud authentication documentation](https://opentela.ai/docs/cloud).
+
+Run the offline deployment checks with:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
 ## Stress testing
 
 `stress_test.py` sends 1,288 examples from the official
