@@ -181,6 +181,26 @@ The inference API key is not written there or passed to the worker.
 selects another OpenTela gateway. The defaults use outbound WebSocket port
 443 from the login node; the compute nodes need no Internet connection.
 
+To use your own OpenTela gateway, pass its origin or full `/v1/service/llm`
+URL with `--api-url` (a trailing `/v1` is also accepted). Authentication is
+still required: use that gateway's API key, via `--api-key` or
+`OPENTELA_API_KEY`:
+
+```bash
+export OPENTELA_API_KEY='your-self-hosted-gateway-key'
+python3 deploy_opentela.py --model Kimi-K3 \
+  --api-url https://opentela-laion-vm.taild3d308.ts.net/v1/service/llm
+```
+
+The script prints a verified, deployment-specific
+`https://<your-gateway>/v1/p2p-service/<peer-id>/llm/v1` URL. It checks the
+selected worker rather than the load-balanced service, which could serve a
+different worker. The gateway must already be running and reachable from
+the login node. If it uses a private mesh, also pass `--bootstrap` with that
+mesh's discovery URL or P2P multiaddr; otherwise the public bootstrap remains
+the default. HTTP is allowed for `localhost`, `127.0.0.1`, and `[::1]`, and
+loopback identity and gateway checks bypass HTTP proxies.
+
 This publishes a service on OpenTela's permissionless mesh. The API key
 authenticates requests through its gateway; it does not make the service
 private, claim the instance in your account, or allocate GPUs. Account linking

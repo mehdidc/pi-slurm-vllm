@@ -69,6 +69,10 @@ def has_model(body, model: str) -> bool:
     )
 
 
+def is_local_url(url: str) -> bool:
+    return urlsplit(url).hostname in {"localhost", "127.0.0.1", "::1"}
+
+
 def detect_cluster() -> str:
     available = {p.name for p in slurm.SUPPORTED_RUNNERS_ROOT.iterdir() if p.is_dir()}
     candidate = os.environ.get("SLURM_CLUSTER_NAME", "").lower()
@@ -247,15 +251,16 @@ def wait_for_route(args, process, local_url: str, model: str) -> str:
             raise RuntimeError(f"OpenTela exited with status {process.returncode}; see otela.log.")
         try:
             if base_url is None:
-                identity = get_json(local_url + "/v1/self")
+                identity = get_json(local_url + "/v1/self", use_proxy=False)
                 peer = identity.get("id", "") if isinstance(identity, dict) else ""
                 if not isinstance(peer, str) or not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,128}", peer):
                     raise ValueError("OpenTela has not returned a valid peer ID yet")
                 base_url = f"{args.api_url}/v1/p2p-service/{quote(peer, safe='')}/llm/v1"
-                log("OpenTela started; waiting for the public route to serve the model")
-            if has_model(get_json(base_url + "/models", args.api_key), model):
+                log("OpenTela started; waiting for the gateway route to serve the model")
+            if has_model(get_json(base_url + "/models", args.api_key,
+                                  use_proxy=not is_local_url(base_url)), model):
                 return base_url
-            last_error = f"public route does not yet list {model}"
+            last_error = f"gateway route does not yet list {model}"
         except HTTPError as exc:
             # Do not print the body: remote diagnostics can echo credentials.
             last_error = f"HTTP {exc.code}"
@@ -338,7 +343,8 @@ def parse_args(argv=None):
     parser.add_argument("--cluster", help="Slurm cluster (default: auto-detect)")
     parser.add_argument("--backend-host", help="Override vLLM hostname; {node} expands to the Slurm head node")
     parser.add_argument("--otela", help="OpenTela executable (default: PATH, then download verified v0.2.6)")
-    parser.add_argument("--api-url", default="https://api.opentela.ai", help="OpenTela gateway root URL")
+    parser.add_argument("--api-url", default="https://api.opentela.ai",
+                        help="OpenTela gateway origin or /v1/service/llm URL (optionally ending in /v1)")
     parser.add_argument("--bootstrap", action="append", help="Bootstrap multiaddr or discovery URL; repeatable")
     parser.add_argument("--state-dir", type=Path, help="Persistent peer identity and log directory")
     parser.add_argument("--slurm-start-timeout", type=positive_int, default=1800)
@@ -346,16 +352,22 @@ def parse_args(argv=None):
     parser.add_argument("--opentela-timeout", type=positive_int, default=300)
     parser.add_argument("--poll-interval", type=positive_int, default=5)
     args = parser.parse_args(argv)
-    if not args.api_key or not args.api_key.strip():
-        parser.error("provide --api-key or set OPENTELA_API_KEY")
-    args.api_key = args.api_key.strip()
-    if any(ord(char) < 33 or ord(char) > 126 for char in args.api_key):
-        parser.error("API key must contain only printable non-whitespace ASCII characters")
     args.api_url = args.api_url.rstrip("/")
     url = urlsplit(args.api_url)
-    local_http = url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}
-    if (url.scheme != "https" and not local_http) or not url.hostname or url.username or url.password or url.query or url.fragment or url.path:
-        parser.error("--api-url must be an HTTPS origin (HTTP allowed only for localhost)")
+    local_http = url.scheme == "http" and is_local_url(args.api_url)
+    if ((url.scheme != "https" and not local_http) or not url.hostname
+            or url.username or url.password or url.query or url.fragment
+            or url.path not in {"", "/v1/service/llm", "/v1/service/llm/v1"}):
+        parser.error("--api-url must be an HTTPS origin or /v1/service/llm URL "
+                     "(optionally ending in /v1; HTTP allowed only for localhost)")
+    # Deployment checks target this worker's peer, even when the supplied URL
+    # is the gateway's load-balanced service endpoint.
+    args.api_url = url._replace(path="").geturl()
+    args.api_key = (args.api_key or "").strip()
+    if not args.api_key:
+        parser.error("provide --api-key or set OPENTELA_API_KEY")
+    if any(ord(char) < 33 or ord(char) > 126 for char in args.api_key):
+        parser.error("API key must contain only printable non-whitespace ASCII characters")
     return args
 
 
@@ -380,7 +392,10 @@ def main(argv=None) -> int:
         log("Stopped OpenTela deployment; Slurm jobs are retained.")
         return 130
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        log(f"Error: {str(exc).replace(args.api_key, '[redacted]')}")
+        message = str(exc)
+        if args.api_key:
+            message = message.replace(args.api_key, "[redacted]")
+        log(f"Error: {message}")
         return 1
     return 0
 
